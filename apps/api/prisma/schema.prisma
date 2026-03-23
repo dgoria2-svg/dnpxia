@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  STAFF
+  MEMBER
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum LicenseStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+  EXPIRED
+}
+
+model User {
+  id                   String       @id @default(cuid())
+  email                String       @unique
+  fullName             String
+  passwordHash         String
+  maxDevices           Int          @default(2)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  memberships          Membership[]
+  devices              Device[]
+  licenses             License[]
+}
+
+model Laboratory {
+  id                   String         @id @default(cuid())
+  name                 String
+  slug                 String         @unique
+  status               String         @default("active")
+  trialEndsAt          DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  memberships          Membership[]
+  subscriptions        Subscription[]
+  licenses             License[]
+  devices              Device[]
+}
+
+model Membership {
+  id                   String         @id @default(cuid())
+  role                 MembershipRole
+  createdAt            DateTime       @default(now())
+  userId               String
+  laboratoryId         String
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  laboratory           Laboratory     @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, laboratoryId])
+}
+
+model Plan {
+  id                   String              @id @default(cuid())
+  code                 String              @unique
+  name                 String
+  description          String?
+  maxDevicesPerUser    Int                 @default(2)
+  isActive             Boolean             @default(true)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  subscriptions        Subscription[]
+}
+
+model Subscription {
+  id                   String              @id @default(cuid())
+  status               SubscriptionStatus
+  startsAt             DateTime
+  endsAt               DateTime?
+  canceledAt           DateTime?
+  laboratoryId         String
+  planId               String
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  laboratory           Laboratory          @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
+  plan                 Plan                @relation(fields: [planId], references: [id])
+}
+
+model Device {
+  id                   String         @id @default(cuid())
+  userId               String
+  laboratoryId         String?
+  platform             String
+  deviceName           String
+  deviceIdentifier     String         @unique
+  isActive             Boolean        @default(true)
+  lastSeenAt           DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  laboratory           Laboratory?    @relation(fields: [laboratoryId], references: [id], onDelete: SetNull)
+}
+
+model License {
+  id                   String          @id @default(cuid())
+  userId               String
+  laboratoryId         String
+  status               LicenseStatus
+  grantedAt            DateTime        @default(now())
+  expiresAt            DateTime?
+  source               String          @default("subscription")
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  laboratory           Laboratory      @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
+}
