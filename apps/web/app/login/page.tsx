@@ -6,6 +6,10 @@ import { SiteHeader } from '../../components/site-header';
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
+type LoginError = {
+  message?: string;
+};
+
 export default function LoginPage() {
   const [email, setEmail] = useState('owner@dnpxia.local');
   const [password, setPassword] = useState('ChangeMe123!');
@@ -24,10 +28,19 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
 
-      const payload = (await response.json()) as AuthResponse | { message?: string };
+      const payload = (await response.json()) as AuthResponse | LoginError;
 
-      if (!response.ok || !('accessToken' in payload)) {
-        setMessage(payload.message ?? 'No fue posible iniciar sesión.');
+      if (!response.ok) {
+        setMessage(
+          'message' in payload && typeof payload.message === 'string'
+            ? payload.message
+            : 'No fue posible iniciar sesión.'
+        );
+        return;
+      }
+
+      if (!('accessToken' in payload)) {
+        setMessage('No fue posible iniciar sesión.');
         return;
       }
 
