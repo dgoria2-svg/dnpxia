@@ -7,87 +7,52 @@ Base inicial de DNPXIA como monorepo para una plataforma SaaS multi-tenant de ó
 - **Monorepo:** pnpm workspaces + Turborepo.
 - **Web:** Next.js 15 + React 19 + TypeScript.
 - **API:** Fastify + Prisma + PostgreSQL.
+- **Billing:** Stripe Checkout + Stripe Billing Portal + Webhooks.
 - **Shared contracts:** paquete TypeScript reutilizable para tipos de dominio.
-- **Tooling:** Prettier, TypeScript estricto, Vitest en API.
 
-## Estructura del repositorio
+## FASE 2 implementada (billing y suscripciones)
 
-```text
-.
-├── apps
-│   ├── android
-│   │   └── README.md
-│   ├── api
-│   │   ├── prisma
-│   │   │   ├── migrations
-│   │   │   ├── schema.prisma
-│   │   │   └── seed.ts
-│   │   ├── src
-│   │   ├── .env.example
-│   │   ├── package.json
-│   │   └── tsconfig.json
-│   └── web
-│       ├── app
-│       ├── components
-│       ├── .env.example
-│       ├── next.config.ts
-│       ├── package.json
-│       └── tsconfig.json
-├── docs
-├── packages
-│   └── shared
-├── .editorconfig
-├── .gitignore
-├── .npmrc
-├── docker-compose.yml
-├── package.json
-├── pnpm-workspace.yaml
-├── tsconfig.base.json
-└── turbo.json
-```
+Esta fase incluye:
 
-## Requisitos
+- Pricing público por endpoint `GET /pricing`.
+- Checkout de Stripe para altas/cambios de plan: `POST /billing/checkout-session`.
+- Billing portal para autogestión: `POST /billing/portal-session`.
+- Trial de 15 días por plan (`trialDays` en `Plan`).
+- Persistencia de suscripciones con estado, periodos y referencias Stripe.
+- Entitlements por laboratorio (`devices.max`) derivados del plan.
+- Webhook Stripe idempotente: `POST /webhooks/stripe`.
 
-- Node.js 22+
-- pnpm 10+
-- Docker opcional para levantar PostgreSQL localmente
+## Variables de entorno necesarias (API)
 
-> Si tu máquina no tiene `pnpm`, con acceso normal a npm podés habilitarlo con:
->
-> ```bash
-> corepack enable
-> corepack prepare pnpm@10.7.0 --activate
-> ```
+Copiar y completar `apps/api/.env.example`:
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_SUCCESS_URL`
+- `STRIPE_CANCEL_URL`
 
 ## Primer arranque local
 
-1. Clonar el repositorio y entrar a la carpeta:
-
-   ```bash
-   git clone <tu-remote> dnpxia
-   cd dnpxia
-   ```
-
-2. Instalar dependencias del monorepo:
+1. Instalar dependencias:
 
    ```bash
    pnpm install
    ```
 
-3. Levantar PostgreSQL local con Docker (recomendado):
+2. Levantar postgres:
 
    ```bash
    docker compose up -d postgres
    ```
 
-4. Configurar variables de entorno:
+3. Variables de entorno:
 
    ```bash
    cp apps/api/.env.example apps/api/.env
    cp apps/web/.env.example apps/web/.env.local
    ```
 
-5. Generar Prisma Client, aplicar migración y cargar seed:
+4. Prisma + seed:
 
    ```bash
    pnpm db:generate
@@ -95,51 +60,18 @@ Base inicial de DNPXIA como monorepo para una plataforma SaaS multi-tenant de ó
    pnpm db:seed
    ```
 
-6. Iniciar web + API en desarrollo:
+5. Desarrollo:
 
    ```bash
    pnpm dev
    ```
 
-## Comandos útiles desde raíz
+## Endpoints de FASE 2
 
-| Comando | Qué hace |
-| --- | --- |
-| `pnpm install` | instala dependencias del monorepo |
-| `pnpm dev` | levanta web y API en paralelo con Turbo |
-| `pnpm dev:web` | levanta solo la web |
-| `pnpm dev:api` | levanta solo la API |
-| `pnpm build` | compila todos los workspaces |
-| `pnpm lint` | corre chequeos de tipado/lint livianos |
-| `pnpm test` | ejecuta los tests configurados |
-| `pnpm db:generate` | genera Prisma Client |
-| `pnpm db:migrate` | aplica migraciones de desarrollo |
-| `pnpm db:seed` | carga datos iniciales mínimos |
-| `pnpm format` | formatea el repositorio con Prettier |
+- `GET /pricing`
+- `POST /billing/checkout-session`
+- `POST /billing/portal-session`
+- `GET /subscriptions/:laboratoryId`
+- `POST /webhooks/stripe`
 
-## Puertos por defecto
-
-- Web: http://localhost:3000
-- API: http://localhost:4000
-- Health API: http://localhost:4000/health
-
-## Credenciales seed
-
-- Email: `owner@dnpxia.local`
-- Password: `ChangeMe123!`
-
-## Qué deja esta base
-
-- Landing pública sobria y lista para crecer.
-- Pantalla de login funcional conectada al backend.
-- Dashboard placeholder con foco en próximos módulos.
-- Backend con health check, auth base, modelo inicial multi-tenant y semilla inicial.
-- Documentación inicial de arquitectura, alcance, decisiones y roadmap.
-
-## Pendiente para Fase 2
-
-- Endpoints reales de suscripciones/billing.
-- Gestión avanzada de membresías y permisos por laboratorio.
-- Integración Android con autenticación de dispositivos.
-- Panel autogestionado con CRUD real para laboratorios, usuarios y licencias.
-- Observabilidad, CI y endurecimiento de seguridad.
+> Nota: esta fase **no** incluye OMA/delivery.

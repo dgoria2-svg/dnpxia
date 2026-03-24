@@ -4,7 +4,10 @@ import sensible from '@fastify/sensible';
 import Fastify from 'fastify';
 import { getEnv } from './lib/env.js';
 import { authRoutes } from './routes/auth.js';
+import { billingRoutes } from './routes/billing.js';
 import { healthRoutes } from './routes/health.js';
+import { pricingRoutes } from './routes/pricing.js';
+import { webhooksRoutes } from './routes/webhooks.js';
 
 export function buildApp() {
   const env = getEnv();
@@ -21,6 +24,9 @@ export function buildApp() {
 
   app.register(healthRoutes);
   app.register(authRoutes);
+  app.register(pricingRoutes);
+  app.register(billingRoutes);
+  app.register(webhooksRoutes);
 
   return app;
 }

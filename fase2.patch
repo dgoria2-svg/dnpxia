@@ -1,0 +1,1137 @@
+diff --git a/README.md b/README.md
+index 58881e1..2d36b5b 100644
+--- a/README.md
++++ b/README.md
+@@ -7,87 +7,52 @@ Base inicial de DNPXIA como monorepo para una plataforma SaaS multi-tenant de ó
+ - **Monorepo:** pnpm workspaces + Turborepo.
+ - **Web:** Next.js 15 + React 19 + TypeScript.
+ - **API:** Fastify + Prisma + PostgreSQL.
++- **Billing:** Stripe Checkout + Stripe Billing Portal + Webhooks.
+ - **Shared contracts:** paquete TypeScript reutilizable para tipos de dominio.
+-- **Tooling:** Prettier, TypeScript estricto, Vitest en API.
+-
+-## Estructura del repositorio
+-
+-```text
+-.
+-├── apps
+-│   ├── android
+-│   │   └── README.md
+-│   ├── api
+-│   │   ├── prisma
+-│   │   │   ├── migrations
+-│   │   │   ├── schema.prisma
+-│   │   │   └── seed.ts
+-│   │   ├── src
+-│   │   ├── .env.example
+-│   │   ├── package.json
+-│   │   └── tsconfig.json
+-│   └── web
+-│       ├── app
+-│       ├── components
+-│       ├── .env.example
+-│       ├── next.config.ts
+-│       ├── package.json
+-│       └── tsconfig.json
+-├── docs
+-├── packages
+-│   └── shared
+-├── .editorconfig
+-├── .gitignore
+-├── .npmrc
+-├── docker-compose.yml
+-├── package.json
+-├── pnpm-workspace.yaml
+-├── tsconfig.base.json
+-└── turbo.json
+-```
+-
+-## Requisitos
+-
+-- Node.js 22+
+-- pnpm 10+
+-- Docker opcional para levantar PostgreSQL localmente
+-
+-> Si tu máquina no tiene `pnpm`, con acceso normal a npm podés habilitarlo con:
+->
+-> ```bash
+-> corepack enable
+-> corepack prepare pnpm@10.7.0 --activate
+-> ```
+ 
+-## Primer arranque local
++## FASE 2 implementada (billing y suscripciones)
+ 
+-1. Clonar el repositorio y entrar a la carpeta:
++Esta fase incluye:
+ 
+-   ```bash
+-   git clone <tu-remote> dnpxia
+-   cd dnpxia
+-   ```
++- Pricing público por endpoint `GET /pricing`.
++- Checkout de Stripe para altas/cambios de plan: `POST /billing/checkout-session`.
++- Billing portal para autogestión: `POST /billing/portal-session`.
++- Trial de 15 días por plan (`trialDays` en `Plan`).
++- Persistencia de suscripciones con estado, periodos y referencias Stripe.
++- Entitlements por laboratorio (`devices.max`) derivados del plan.
++- Webhook Stripe idempotente: `POST /webhooks/stripe`.
++
++## Variables de entorno necesarias (API)
++
++Copiar y completar `apps/api/.env.example`:
++
++- `STRIPE_SECRET_KEY`
++- `STRIPE_WEBHOOK_SECRET`
++- `STRIPE_SUCCESS_URL`
++- `STRIPE_CANCEL_URL`
++
++## Primer arranque local
+ 
+-2. Instalar dependencias del monorepo:
++1. Instalar dependencias:
+ 
+    ```bash
+    pnpm install
+    ```
+ 
+-3. Levantar PostgreSQL local con Docker (recomendado):
++2. Levantar postgres:
+ 
+    ```bash
+    docker compose up -d postgres
+    ```
+ 
+-4. Configurar variables de entorno:
++3. Variables de entorno:
+ 
+    ```bash
+    cp apps/api/.env.example apps/api/.env
+    cp apps/web/.env.example apps/web/.env.local
+    ```
+ 
+-5. Generar Prisma Client, aplicar migración y cargar seed:
++4. Prisma + seed:
+ 
+    ```bash
+    pnpm db:generate
+@@ -95,51 +60,18 @@ Base inicial de DNPXIA como monorepo para una plataforma SaaS multi-tenant de ó
+    pnpm db:seed
+    ```
+ 
+-6. Iniciar web + API en desarrollo:
++5. Desarrollo:
+ 
+    ```bash
+    pnpm dev
+    ```
+ 
+-## Comandos útiles desde raíz
+-
+-| Comando | Qué hace |
+-| --- | --- |
+-| `pnpm install` | instala dependencias del monorepo |
+-| `pnpm dev` | levanta web y API en paralelo con Turbo |
+-| `pnpm dev:web` | levanta solo la web |
+-| `pnpm dev:api` | levanta solo la API |
+-| `pnpm build` | compila todos los workspaces |
+-| `pnpm lint` | corre chequeos de tipado/lint livianos |
+-| `pnpm test` | ejecuta los tests configurados |
+-| `pnpm db:generate` | genera Prisma Client |
+-| `pnpm db:migrate` | aplica migraciones de desarrollo |
+-| `pnpm db:seed` | carga datos iniciales mínimos |
+-| `pnpm format` | formatea el repositorio con Prettier |
+-
+-## Puertos por defecto
+-
+-- Web: http://localhost:3000
+-- API: http://localhost:4000
+-- Health API: http://localhost:4000/health
+-
+-## Credenciales seed
+-
+-- Email: `owner@dnpxia.local`
+-- Password: `ChangeMe123!`
+-
+-## Qué deja esta base
+-
+-- Landing pública sobria y lista para crecer.
+-- Pantalla de login funcional conectada al backend.
+-- Dashboard placeholder con foco en próximos módulos.
+-- Backend con health check, auth base, modelo inicial multi-tenant y semilla inicial.
+-- Documentación inicial de arquitectura, alcance, decisiones y roadmap.
++## Endpoints de FASE 2
+ 
+-## Pendiente para Fase 2
++- `GET /pricing`
++- `POST /billing/checkout-session`
++- `POST /billing/portal-session`
++- `GET /subscriptions/:laboratoryId`
++- `POST /webhooks/stripe`
+ 
+-- Endpoints reales de suscripciones/billing.
+-- Gestión avanzada de membresías y permisos por laboratorio.
+-- Integración Android con autenticación de dispositivos.
+-- Panel autogestionado con CRUD real para laboratorios, usuarios y licencias.
+-- Observabilidad, CI y endurecimiento de seguridad.
++> Nota: esta fase **no** incluye OMA/delivery.
+diff --git a/apps/api/.env.example b/apps/api/.env.example
+index 56940f3..bd7abdc 100644
+--- a/apps/api/.env.example
++++ b/apps/api/.env.example
+@@ -1,4 +1,8 @@
+ PORT=4000
+ DATABASE_URL="postgresql://dnpxia:dnpxia@localhost:5432/dnpxia?schema=public"
+-JWT_SECRET="change-me"
++JWT_SECRET="change-me-now"
+ CORS_ORIGIN="http://localhost:3000"
++STRIPE_SECRET_KEY="sk_test_xxx"
++STRIPE_WEBHOOK_SECRET="whsec_xxx"
++STRIPE_SUCCESS_URL="http://localhost:3000/dashboard?billing=success"
++STRIPE_CANCEL_URL="http://localhost:3000/dashboard?billing=cancel"
+diff --git a/apps/api/package.json b/apps/api/package.json
+index c54e96a..1a71e59 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -1,12 +1,33 @@
+ {
+-  "name": "dnpxia-api",
++  "name": "@dnpxia/api",
+   "version": "0.1.0",
+   "private": true,
++  "type": "module",
+   "scripts": {
+-    "dev": "node server.js"
++    "dev": "tsx watch src/server.ts",
++    "build": "tsc -p tsconfig.json",
++    "start": "node dist/server.js",
++    "test": "vitest run",
++    "db:generate": "prisma generate",
++    "db:migrate": "prisma migrate dev",
++    "db:seed": "tsx prisma/seed.ts"
+   },
+   "dependencies": {
+-    "express": "^5.1.0",
+-    "pg": "^8.16.3"
++    "@fastify/cors": "^10.0.2",
++    "@fastify/jwt": "^9.1.0",
++    "@fastify/sensible": "^6.0.3",
++    "@prisma/client": "^6.6.0",
++    "bcryptjs": "^3.0.2",
++    "dotenv": "^16.5.0",
++    "fastify": "^5.2.1",
++    "stripe": "^18.0.0",
++    "zod": "^3.24.2"
++  },
++  "devDependencies": {
++    "@types/node": "^22.13.14",
++    "prisma": "^6.6.0",
++    "tsx": "^4.19.3",
++    "typescript": "^5.8.2",
++    "vitest": "^3.1.1"
+   }
+ }
+diff --git a/apps/api/prisma/migrations/202603240001_phase2_billing/migration.sql b/apps/api/prisma/migrations/202603240001_phase2_billing/migration.sql
+new file mode 100644
+index 0000000..a2afe49
+--- /dev/null
++++ b/apps/api/prisma/migrations/202603240001_phase2_billing/migration.sql
+@@ -0,0 +1,57 @@
++-- AlterTable
++ALTER TABLE "Laboratory" ADD COLUMN "stripeCustomerId" TEXT;
++
++-- AlterTable
++ALTER TABLE "Plan"
++  ADD COLUMN "amountCents" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "billingInterval" TEXT NOT NULL DEFAULT 'month',
++  ADD COLUMN "currency" TEXT NOT NULL DEFAULT 'usd',
++  ADD COLUMN "stripePriceId" TEXT,
++  ADD COLUMN "trialDays" INTEGER NOT NULL DEFAULT 15;
++
++-- AlterTable
++ALTER TABLE "Subscription"
++  ADD COLUMN "currentPeriodEndAt" TIMESTAMP(3),
++  ADD COLUMN "currentPeriodStartAt" TIMESTAMP(3),
++  ADD COLUMN "stripeCustomerId" TEXT,
++  ADD COLUMN "stripeSubscriptionId" TEXT,
++  ADD COLUMN "trialEndsAt" TIMESTAMP(3);
++
++-- CreateTable
++CREATE TABLE "Entitlement" (
++  "id" TEXT NOT NULL,
++  "laboratoryId" TEXT NOT NULL,
++  "subscriptionId" TEXT,
++  "key" TEXT NOT NULL,
++  "value" INTEGER NOT NULL,
++  "source" TEXT NOT NULL DEFAULT 'subscription',
++  "active" BOOLEAN NOT NULL DEFAULT true,
++  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  "updatedAt" TIMESTAMP(3) NOT NULL,
++
++  CONSTRAINT "Entitlement_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateTable
++CREATE TABLE "WebhookEvent" (
++  "id" TEXT NOT NULL,
++  "provider" TEXT NOT NULL,
++  "eventId" TEXT NOT NULL,
++  "eventType" TEXT NOT NULL,
++  "payload" JSONB NOT NULL,
++  "processedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++  CONSTRAINT "WebhookEvent_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateIndex
++CREATE UNIQUE INDEX "Laboratory_stripeCustomerId_key" ON "Laboratory"("stripeCustomerId");
++CREATE UNIQUE INDEX "Plan_stripePriceId_key" ON "Plan"("stripePriceId");
++CREATE UNIQUE INDEX "Subscription_stripeSubscriptionId_key" ON "Subscription"("stripeSubscriptionId");
++CREATE INDEX "Subscription_laboratoryId_createdAt_idx" ON "Subscription"("laboratoryId", "createdAt");
++CREATE UNIQUE INDEX "Entitlement_laboratoryId_key_key" ON "Entitlement"("laboratoryId", "key");
++CREATE UNIQUE INDEX "WebhookEvent_eventId_key" ON "WebhookEvent"("eventId");
++
++-- AddForeignKey
++ALTER TABLE "Entitlement" ADD CONSTRAINT "Entitlement_laboratoryId_fkey" FOREIGN KEY ("laboratoryId") REFERENCES "Laboratory"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "Entitlement" ADD CONSTRAINT "Entitlement_subscriptionId_fkey" FOREIGN KEY ("subscriptionId") REFERENCES "Subscription"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 0af1c82..2b2a2e7 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -30,95 +30,135 @@ enum LicenseStatus {
+ }
+ 
+ model User {
+-  id                   String       @id @default(cuid())
+-  email                String       @unique
+-  fullName             String
+-  passwordHash         String
+-  maxDevices           Int          @default(2)
+-  createdAt            DateTime     @default(now())
+-  updatedAt            DateTime     @updatedAt
+-  memberships          Membership[]
+-  devices              Device[]
+-  licenses             License[]
++  id           String       @id @default(cuid())
++  email        String       @unique
++  fullName     String
++  passwordHash String
++  maxDevices   Int          @default(2)
++  createdAt    DateTime     @default(now())
++  updatedAt    DateTime     @updatedAt
++  memberships  Membership[]
++  devices      Device[]
++  licenses     License[]
+ }
+ 
+ model Laboratory {
+-  id                   String         @id @default(cuid())
+-  name                 String
+-  slug                 String         @unique
+-  status               String         @default("active")
+-  trialEndsAt          DateTime?
+-  createdAt            DateTime       @default(now())
+-  updatedAt            DateTime       @updatedAt
+-  memberships          Membership[]
+-  subscriptions        Subscription[]
+-  licenses             License[]
+-  devices              Device[]
++  id               String         @id @default(cuid())
++  name             String
++  slug             String         @unique
++  status           String         @default("active")
++  trialEndsAt      DateTime?
++  stripeCustomerId String?        @unique
++  createdAt        DateTime       @default(now())
++  updatedAt        DateTime       @updatedAt
++  memberships      Membership[]
++  subscriptions    Subscription[]
++  licenses         License[]
++  devices          Device[]
++  entitlements     Entitlement[]
+ }
+ 
+ model Membership {
+-  id                   String         @id @default(cuid())
+-  role                 MembershipRole
+-  createdAt            DateTime       @default(now())
+-  userId               String
+-  laboratoryId         String
+-  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+-  laboratory           Laboratory     @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
++  id           String         @id @default(cuid())
++  role         MembershipRole
++  createdAt    DateTime       @default(now())
++  userId       String
++  laboratoryId String
++  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
++  laboratory   Laboratory     @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
+ 
+   @@unique([userId, laboratoryId])
+ }
+ 
+ model Plan {
+-  id                   String              @id @default(cuid())
+-  code                 String              @unique
+-  name                 String
+-  description          String?
+-  maxDevicesPerUser    Int                 @default(2)
+-  isActive             Boolean             @default(true)
+-  createdAt            DateTime            @default(now())
+-  updatedAt            DateTime            @updatedAt
+-  subscriptions        Subscription[]
++  id                String         @id @default(cuid())
++  code              String         @unique
++  name              String
++  description       String?
++  stripePriceId     String?        @unique
++  billingInterval   String         @default("month")
++  amountCents       Int            @default(0)
++  currency          String         @default("usd")
++  trialDays         Int            @default(15)
++  maxDevicesPerUser Int            @default(2)
++  isActive          Boolean        @default(true)
++  createdAt         DateTime       @default(now())
++  updatedAt         DateTime       @updatedAt
++  subscriptions     Subscription[]
+ }
+ 
+ model Subscription {
+-  id                   String              @id @default(cuid())
++  id                   String             @id @default(cuid())
+   status               SubscriptionStatus
+   startsAt             DateTime
+   endsAt               DateTime?
+   canceledAt           DateTime?
++  trialEndsAt          DateTime?
++  currentPeriodStartAt DateTime?
++  currentPeriodEndAt   DateTime?
++  stripeSubscriptionId String?            @unique
++  stripeCustomerId     String?
+   laboratoryId         String
+   planId               String
+-  createdAt            DateTime            @default(now())
+-  updatedAt            DateTime            @updatedAt
+-  laboratory           Laboratory          @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
+-  plan                 Plan                @relation(fields: [planId], references: [id])
++  createdAt            DateTime           @default(now())
++  updatedAt            DateTime           @updatedAt
++  laboratory           Laboratory         @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
++  plan                 Plan               @relation(fields: [planId], references: [id])
++  entitlements         Entitlement[]
++
++  @@index([laboratoryId, createdAt])
++}
++
++model Entitlement {
++  id             String        @id @default(cuid())
++  laboratoryId   String
++  subscriptionId String?
++  key            String
++  value          Int
++  source         String        @default("subscription")
++  active         Boolean       @default(true)
++  createdAt      DateTime      @default(now())
++  updatedAt      DateTime      @updatedAt
++  laboratory     Laboratory    @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
++  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
++
++  @@unique([laboratoryId, key])
++}
++
++model WebhookEvent {
++  id          String   @id @default(cuid())
++  provider    String
++  eventId     String   @unique
++  eventType   String
++  payload     Json
++  processedAt DateTime @default(now())
+ }
+ 
+ model Device {
+-  id                   String         @id @default(cuid())
+-  userId               String
+-  laboratoryId         String?
+-  platform             String
+-  deviceName           String
+-  deviceIdentifier     String         @unique
+-  isActive             Boolean        @default(true)
+-  lastSeenAt           DateTime?
+-  createdAt            DateTime       @default(now())
+-  updatedAt            DateTime       @updatedAt
+-  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+-  laboratory           Laboratory?    @relation(fields: [laboratoryId], references: [id], onDelete: SetNull)
++  id               String      @id @default(cuid())
++  userId           String
++  laboratoryId     String?
++  platform         String
++  deviceName       String
++  deviceIdentifier String      @unique
++  isActive         Boolean     @default(true)
++  lastSeenAt       DateTime?
++  createdAt        DateTime    @default(now())
++  updatedAt        DateTime    @updatedAt
++  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
++  laboratory       Laboratory? @relation(fields: [laboratoryId], references: [id], onDelete: SetNull)
+ }
+ 
+ model License {
+-  id                   String          @id @default(cuid())
+-  userId               String
+-  laboratoryId         String
+-  status               LicenseStatus
+-  grantedAt            DateTime        @default(now())
+-  expiresAt            DateTime?
+-  source               String          @default("subscription")
+-  createdAt            DateTime        @default(now())
+-  updatedAt            DateTime        @updatedAt
+-  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+-  laboratory           Laboratory      @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
++  id           String       @id @default(cuid())
++  userId       String
++  laboratoryId String
++  status       LicenseStatus
++  grantedAt    DateTime     @default(now())
++  expiresAt    DateTime?
++  source       String       @default("subscription")
++  createdAt    DateTime     @default(now())
++  updatedAt    DateTime     @updatedAt
++  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
++  laboratory   Laboratory   @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
+ }
+diff --git a/apps/api/prisma/seed.ts b/apps/api/prisma/seed.ts
+index a9ea14b..827694c 100644
+--- a/apps/api/prisma/seed.ts
++++ b/apps/api/prisma/seed.ts
+@@ -4,24 +4,65 @@ import { PrismaClient } from '@prisma/client';
+ const prisma = new PrismaClient();
+ 
+ async function main() {
+-  const plan = await prisma.plan.upsert({
++  const starterPlan = await prisma.plan.upsert({
+     where: { code: 'starter' },
+-    update: {},
++    update: {
++      description: 'Plan Starter con Stripe y trial de 15 días.',
++      amountCents: 4900,
++      currency: 'usd',
++      billingInterval: 'month',
++      trialDays: 15,
++      maxDevicesPerUser: 3,
++      isActive: true,
++    },
+     create: {
+       code: 'starter',
+       name: 'Starter',
+-      description: 'Plan inicial para laboratorios en trial o primeras pruebas.',
+-      maxDevicesPerUser: 2,
++      description: 'Plan Starter con Stripe y trial de 15 días.',
++      amountCents: 4900,
++      currency: 'usd',
++      billingInterval: 'month',
++      trialDays: 15,
++      maxDevicesPerUser: 3,
++      stripePriceId: 'price_starter_placeholder',
++      isActive: true,
++    },
++  });
++
++  const proPlan = await prisma.plan.upsert({
++    where: { code: 'pro' },
++    update: {
++      description: 'Plan Pro para laboratorios con más capacidad.',
++      amountCents: 9900,
++      currency: 'usd',
++      billingInterval: 'month',
++      trialDays: 15,
++      maxDevicesPerUser: 10,
++      isActive: true,
++    },
++    create: {
++      code: 'pro',
++      name: 'Pro',
++      description: 'Plan Pro para laboratorios con más capacidad.',
++      amountCents: 9900,
++      currency: 'usd',
++      billingInterval: 'month',
++      trialDays: 15,
++      maxDevicesPerUser: 10,
++      stripePriceId: 'price_pro_placeholder',
++      isActive: true,
+     },
+   });
+ 
+   const laboratory = await prisma.laboratory.upsert({
+     where: { slug: 'vision-demo' },
+-    update: {},
++    update: {
++      trialEndsAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 15),
++    },
+     create: {
+       name: 'Vision Demo Lab',
+       slug: 'vision-demo',
+-      trialEndsAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14),
++      trialEndsAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 15),
+     },
+   });
+ 
+@@ -34,7 +75,7 @@ async function main() {
+       email: 'owner@dnpxia.local',
+       fullName: 'Initial Owner',
+       passwordHash,
+-      maxDevices: 2,
++      maxDevices: 3,
+     },
+   });
+ 
+@@ -53,21 +94,53 @@ async function main() {
+     },
+   });
+ 
+-  const existingSubscription = await prisma.subscription.findFirst({
+-    where: { laboratoryId: laboratory.id, planId: plan.id },
++  const subscription = await prisma.subscription.upsert({
++    where: {
++      stripeSubscriptionId: 'sub_seed_vision_demo',
++    },
++    update: {
++      planId: starterPlan.id,
++      status: 'TRIAL',
++      startsAt: new Date(),
++      trialEndsAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 15),
++      currentPeriodEndAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 15),
++      stripeCustomerId: 'cus_seed_vision_demo',
++    },
++    create: {
++      laboratoryId: laboratory.id,
++      planId: starterPlan.id,
++      status: 'TRIAL',
++      startsAt: new Date(),
++      trialEndsAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 15),
++      currentPeriodStartAt: new Date(),
++      currentPeriodEndAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 15),
++      stripeSubscriptionId: 'sub_seed_vision_demo',
++      stripeCustomerId: 'cus_seed_vision_demo',
++    },
+   });
+ 
+-  if (!existingSubscription) {
+-    await prisma.subscription.create({
+-      data: {
++  await prisma.entitlement.upsert({
++    where: {
++      laboratoryId_key: {
+         laboratoryId: laboratory.id,
+-        planId: plan.id,
+-        status: 'TRIAL',
+-        startsAt: new Date(),
+-        endsAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14),
++        key: 'devices.max',
+       },
+-    });
+-  }
++    },
++    update: {
++      value: starterPlan.maxDevicesPerUser,
++      subscriptionId: subscription.id,
++      active: true,
++    },
++    create: {
++      laboratoryId: laboratory.id,
++      subscriptionId: subscription.id,
++      key: 'devices.max',
++      value: starterPlan.maxDevicesPerUser,
++      active: true,
++    },
++  });
++
++  console.log('Seed OK', { starterPlan: starterPlan.code, proPlan: proPlan.code, subscription: subscription.id });
+ }
+ 
+ main()
+diff --git a/apps/api/src/app.test.ts b/apps/api/src/app.test.ts
+index 92a5c96..72b555a 100644
+--- a/apps/api/src/app.test.ts
++++ b/apps/api/src/app.test.ts
+@@ -6,6 +6,10 @@ const requiredEnv = {
+   DATABASE_URL: 'postgresql://dnpxia:dnpxia@localhost:5432/dnpxia?schema=public',
+   JWT_SECRET: 'change-me-super-secret',
+   CORS_ORIGIN: 'http://localhost:3000',
++  STRIPE_SECRET_KEY: 'sk_test_dummy',
++  STRIPE_WEBHOOK_SECRET: 'whsec_dummy',
++  STRIPE_SUCCESS_URL: 'http://localhost:3000/dashboard?billing=success',
++  STRIPE_CANCEL_URL: 'http://localhost:3000/dashboard?billing=cancel',
+ };
+ 
+ beforeAll(() => {
+diff --git a/apps/api/src/app.ts b/apps/api/src/app.ts
+index 9bc0377..956e77d 100644
+--- a/apps/api/src/app.ts
++++ b/apps/api/src/app.ts
+@@ -4,7 +4,10 @@ import sensible from '@fastify/sensible';
+ import Fastify from 'fastify';
+ import { getEnv } from './lib/env.js';
+ import { authRoutes } from './routes/auth.js';
++import { billingRoutes } from './routes/billing.js';
+ import { healthRoutes } from './routes/health.js';
++import { pricingRoutes } from './routes/pricing.js';
++import { webhooksRoutes } from './routes/webhooks.js';
+ 
+ export function buildApp() {
+   const env = getEnv();
+@@ -21,6 +24,9 @@ export function buildApp() {
+ 
+   app.register(healthRoutes);
+   app.register(authRoutes);
++  app.register(pricingRoutes);
++  app.register(billingRoutes);
++  app.register(webhooksRoutes);
+ 
+   return app;
+ }
+diff --git a/apps/api/src/lib/env.ts b/apps/api/src/lib/env.ts
+index 1ba558e..2e3658a 100644
+--- a/apps/api/src/lib/env.ts
++++ b/apps/api/src/lib/env.ts
+@@ -6,6 +6,10 @@ const envSchema = z.object({
+   DATABASE_URL: z.string().min(1),
+   JWT_SECRET: z.string().min(8),
+   CORS_ORIGIN: z.string().default('http://localhost:3000'),
++  STRIPE_SECRET_KEY: z.string().min(1),
++  STRIPE_WEBHOOK_SECRET: z.string().min(1),
++  STRIPE_SUCCESS_URL: z.string().url().default('http://localhost:3000/dashboard?billing=success'),
++  STRIPE_CANCEL_URL: z.string().url().default('http://localhost:3000/dashboard?billing=cancel'),
+ });
+ 
+ export function getEnv() {
+diff --git a/apps/api/src/lib/stripe.ts b/apps/api/src/lib/stripe.ts
+new file mode 100644
+index 0000000..437be1c
+--- /dev/null
++++ b/apps/api/src/lib/stripe.ts
+@@ -0,0 +1,8 @@
++import Stripe from 'stripe';
++import { getEnv } from './env.js';
++
++const env = getEnv();
++
++export const stripe = new Stripe(env.STRIPE_SECRET_KEY, {
++  apiVersion: '2025-02-24.acacia',
++});
+diff --git a/apps/api/src/routes/billing.ts b/apps/api/src/routes/billing.ts
+new file mode 100644
+index 0000000..cd427c3
+--- /dev/null
++++ b/apps/api/src/routes/billing.ts
+@@ -0,0 +1,129 @@
++import { FastifyInstance } from 'fastify';
++import { z } from 'zod';
++import { getEnv } from '../lib/env.js';
++import { prisma } from '../lib/prisma.js';
++import { stripe } from '../lib/stripe.js';
++
++const checkoutSchema = z.object({
++  laboratoryId: z.string().min(1),
++  planCode: z.string().min(1),
++  successUrl: z.string().url().optional(),
++  cancelUrl: z.string().url().optional(),
++});
++
++const portalSchema = z.object({
++  laboratoryId: z.string().min(1),
++  returnUrl: z.string().url().optional(),
++});
++
++export async function billingRoutes(app: FastifyInstance) {
++  const env = getEnv();
++
++  app.post('/billing/checkout-session', async (request, reply) => {
++    await request.jwtVerify();
++    const userId = String((request.user as { sub: string }).sub);
++    const input = checkoutSchema.parse(request.body);
++
++    const membership = await prisma.membership.findFirst({
++      where: { laboratoryId: input.laboratoryId, userId },
++      include: { laboratory: true },
++    });
++
++    if (!membership) {
++      return reply.forbidden('User is not a member of this laboratory.');
++    }
++
++    const plan = await prisma.plan.findUnique({ where: { code: input.planCode } });
++    if (!plan || !plan.isActive || !plan.stripePriceId) {
++      return reply.badRequest('Plan is not available for billing.');
++    }
++
++    let customerId = membership.laboratory.stripeCustomerId;
++    if (!customerId) {
++      const customer = await stripe.customers.create({
++        email: (request.user as { email?: string }).email,
++        metadata: { laboratoryId: membership.laboratoryId },
++        name: membership.laboratory.name,
++      });
++
++      customerId = customer.id;
++      await prisma.laboratory.update({
++        where: { id: membership.laboratoryId },
++        data: { stripeCustomerId: customerId },
++      });
++    }
++
++    const checkoutSession = await stripe.checkout.sessions.create({
++      mode: 'subscription',
++      customer: customerId,
++      line_items: [{ price: plan.stripePriceId, quantity: 1 }],
++      success_url: input.successUrl ?? env.STRIPE_SUCCESS_URL,
++      cancel_url: input.cancelUrl ?? env.STRIPE_CANCEL_URL,
++      subscription_data: {
++        trial_period_days: plan.trialDays,
++        metadata: {
++          laboratoryId: membership.laboratoryId,
++          planCode: plan.code,
++        },
++      },
++      metadata: {
++        laboratoryId: membership.laboratoryId,
++        planCode: plan.code,
++      },
++    });
++
++    return { checkoutUrl: checkoutSession.url };
++  });
++
++  app.post('/billing/portal-session', async (request, reply) => {
++    await request.jwtVerify();
++    const userId = String((request.user as { sub: string }).sub);
++    const input = portalSchema.parse(request.body);
++
++    const membership = await prisma.membership.findFirst({
++      where: { laboratoryId: input.laboratoryId, userId },
++      include: { laboratory: true },
++    });
++
++    if (!membership || !membership.laboratory.stripeCustomerId) {
++      return reply.badRequest('Billing portal is not available for this laboratory.');
++    }
++
++    const portalSession = await stripe.billingPortal.sessions.create({
++      customer: membership.laboratory.stripeCustomerId,
++      return_url: input.returnUrl ?? env.STRIPE_SUCCESS_URL,
++    });
++
++    return { url: portalSession.url };
++  });
++
++  app.get('/subscriptions/:laboratoryId', async (request, reply) => {
++    await request.jwtVerify();
++    const userId = String((request.user as { sub: string }).sub);
++    const params = z.object({ laboratoryId: z.string().min(1) }).parse(request.params);
++
++    const membership = await prisma.membership.findFirst({
++      where: { laboratoryId: params.laboratoryId, userId },
++    });
++
++    if (!membership) {
++      return reply.forbidden('User is not a member of this laboratory.');
++    }
++
++    const subscription = await prisma.subscription.findFirst({
++      where: { laboratoryId: params.laboratoryId },
++      orderBy: { createdAt: 'desc' },
++      include: { plan: true },
++    });
++
++    const entitlements = await prisma.entitlement.findMany({
++      where: { laboratoryId: params.laboratoryId, active: true },
++      orderBy: { key: 'asc' },
++    });
++
++    return {
++      subscription,
++      entitlements,
++    };
++  });
++}
+diff --git a/apps/api/src/routes/pricing.ts b/apps/api/src/routes/pricing.ts
+new file mode 100644
+index 0000000..bdaebf4
+--- /dev/null
++++ b/apps/api/src/routes/pricing.ts
+@@ -0,0 +1,23 @@
++import { FastifyInstance } from 'fastify';
++import { prisma } from '../lib/prisma.js';
++
++export async function pricingRoutes(app: FastifyInstance) {
++  app.get('/pricing', async () => {
++    const plans = await prisma.plan.findMany({
++      where: { isActive: true },
++      orderBy: [{ amountCents: 'asc' }],
++      select: {
++        code: true,
++        name: true,
++        description: true,
++        amountCents: true,
++        currency: true,
++        billingInterval: true,
++        trialDays: true,
++        maxDevicesPerUser: true,
++      },
++    });
++
++    return { plans };
++  });
++}
+diff --git a/apps/api/src/routes/webhooks.ts b/apps/api/src/routes/webhooks.ts
+new file mode 100644
+index 0000000..89f9d1e
+--- /dev/null
++++ b/apps/api/src/routes/webhooks.ts
+@@ -0,0 +1,153 @@
++import { FastifyInstance } from 'fastify';
++import Stripe from 'stripe';
++import { getEnv } from '../lib/env.js';
++import { prisma } from '../lib/prisma.js';
++import { stripe } from '../lib/stripe.js';
++
++function mapStripeStatus(status: Stripe.Subscription.Status) {
++  switch (status) {
++    case 'trialing':
++      return 'TRIAL';
++    case 'active':
++      return 'ACTIVE';
++    case 'past_due':
++    case 'unpaid':
++      return 'PAST_DUE';
++    case 'canceled':
++      return 'CANCELED';
++    default:
++      return 'EXPIRED';
++  }
++}
++
++export async function webhooksRoutes(app: FastifyInstance) {
++  const env = getEnv();
++
++  app.post('/webhooks/stripe', async (request, reply) => {
++    const signature = request.headers['stripe-signature'];
++    if (!signature || typeof signature !== 'string') {
++      return reply.badRequest('Missing stripe signature header.');
++    }
++
++    let event: Stripe.Event;
++    try {
++      event = stripe.webhooks.constructEvent(
++        JSON.stringify(request.body ?? {}),
++        signature,
++        env.STRIPE_WEBHOOK_SECRET,
++      );
++    } catch (error) {
++      return reply.badRequest(`Webhook signature verification failed: ${(error as Error).message}`);
++    }
++
++    const alreadyProcessed = await prisma.webhookEvent.findUnique({ where: { eventId: event.id } });
++    if (alreadyProcessed) {
++      return { received: true, deduplicated: true };
++    }
++
++    if (
++      event.type === 'customer.subscription.created' ||
++      event.type === 'customer.subscription.updated' ||
++      event.type === 'customer.subscription.deleted'
++    ) {
++      const data = event.data.object as Stripe.Subscription;
++      const laboratoryId = data.metadata?.laboratoryId;
++      const planCode = data.metadata?.planCode;
++
++      if (!laboratoryId || !planCode) {
++        await prisma.webhookEvent.create({
++          data: {
++            provider: 'stripe',
++            eventId: event.id,
++            eventType: event.type,
++            payload: event as unknown as object,
++          },
++        });
++
++        return { received: true, ignored: true };
++      }
++
++      const plan = await prisma.plan.findUnique({ where: { code: planCode } });
++      if (!plan) {
++        return reply.badRequest(`Unknown plan code: ${planCode}`);
++      }
++
++      const periodStart = data.items.data[0]?.current_period_start;
++      const periodEnd = data.items.data[0]?.current_period_end;
++
++      const subscription = await prisma.subscription.upsert({
++        where: { stripeSubscriptionId: data.id },
++        create: {
++          laboratoryId,
++          planId: plan.id,
++          status: mapStripeStatus(data.status) as
++            | 'TRIAL'
++            | 'ACTIVE'
++            | 'PAST_DUE'
++            | 'CANCELED'
++            | 'EXPIRED',
++          startsAt: new Date((data.start_date ?? Math.floor(Date.now() / 1000)) * 1000),
++          endsAt: data.ended_at ? new Date(data.ended_at * 1000) : null,
++          canceledAt: data.canceled_at ? new Date(data.canceled_at * 1000) : null,
++          trialEndsAt: data.trial_end ? new Date(data.trial_end * 1000) : null,
++          currentPeriodStartAt: periodStart ? new Date(periodStart * 1000) : null,
++          currentPeriodEndAt: periodEnd ? new Date(periodEnd * 1000) : null,
++          stripeSubscriptionId: data.id,
++          stripeCustomerId: String(data.customer),
++        },
++        update: {
++          status: mapStripeStatus(data.status) as
++            | 'TRIAL'
++            | 'ACTIVE'
++            | 'PAST_DUE'
++            | 'CANCELED'
++            | 'EXPIRED',
++          endsAt: data.ended_at ? new Date(data.ended_at * 1000) : null,
++          canceledAt: data.canceled_at ? new Date(data.canceled_at * 1000) : null,
++          trialEndsAt: data.trial_end ? new Date(data.trial_end * 1000) : null,
++          currentPeriodStartAt: periodStart ? new Date(periodStart * 1000) : null,
++          currentPeriodEndAt: periodEnd ? new Date(periodEnd * 1000) : null,
++          stripeCustomerId: String(data.customer),
++          planId: plan.id,
++        },
++      });
++
++      await prisma.entitlement.upsert({
++        where: {
++          laboratoryId_key: {
++            laboratoryId,
++            key: 'devices.max',
++          },
++        },
++        update: {
++          value: plan.maxDevicesPerUser,
++          active: subscription.status !== 'CANCELED' && subscription.status !== 'EXPIRED',
++          subscriptionId: subscription.id,
++        },
++        create: {
++          laboratoryId,
++          subscriptionId: subscription.id,
++          key: 'devices.max',
++          value: plan.maxDevicesPerUser,
++          active: true,
++        },
++      });
++
++      await prisma.laboratory.update({
++        where: { id: laboratoryId },
++        data: { stripeCustomerId: String(data.customer) },
++      });
++    }
++
++    await prisma.webhookEvent.create({
++      data: {
++        provider: 'stripe',
++        eventId: event.id,
++        eventType: event.type,
++        payload: event as unknown as object,
++      },
++    });
++
++    return { received: true };
++  });
++}
+diff --git a/docs/decisions.md b/docs/decisions.md
+index 3f12dbf..e7724a6 100644
+--- a/docs/decisions.md
++++ b/docs/decisions.md
+@@ -1,9 +1,25 @@
+-# DNPXIA - decisiones iniciales
+-
+-- Fase 0: validar infraestructura y puertos antes de meter frameworks más pesados.
+-- Base de datos inicial: PostgreSQL 16.
+-- API inicial: Node + Express mínimo con endpoint de health.
+-- Web inicial: Node mínimo que sirve una landing temporal.
+-- Multi-tenant base: tenants, users_account, tenant_memberships, plans, subscriptions, devices.
+-- Decisión temporal: todavía no hay auth real ni hash de password; primero dejamos listo el flujo de negocio.
+-- Próximo paso: endpoint de bootstrap para alta de laboratorio + owner + trial.
++# DNPXIA - decisiones
++
++## Arquitectura base
++
++- Backend oficial en Fastify + Prisma + PostgreSQL.
++- Frontend web en Next.js.
++- Modelo multi-tenant por laboratorio.
++
++## FASE 2 (billing y suscripciones)
++
++- Stripe es el PSP elegido para cobrar suscripciones.
++- Trial estándar de 15 días parametrizado por plan (`Plan.trialDays`).
++- La fuente de verdad de pricing en backend es la tabla `Plan`.
++- Se agregan IDs de Stripe en entidades de dominio (`stripePriceId`, `stripeCustomerId`, `stripeSubscriptionId`).
++- Entitlements se guardan explícitamente en tabla `Entitlement` para permitir evolución futura por feature flags/cupos.
++- Webhooks se guardan en `WebhookEvent` con deduplicación por `eventId`.
++- El webhook actual sincroniza:
++  - estado de suscripción,
++  - periodos,
++  - entitlement `devices.max`.
++
++## Alcance fuera de FASE 2
++
++- No se implementa OMA/delivery en esta fase.
++- No se implementan aún flujos de fulfilment físico ni tracking de entregas.
+diff --git a/packages/shared/src/index.ts b/packages/shared/src/index.ts
+index c8c0894..2aed880 100644
+--- a/packages/shared/src/index.ts
++++ b/packages/shared/src/index.ts
+@@ -1,36 +1,27 @@
+ export type MembershipRole = 'OWNER' | 'ADMIN' | 'STAFF' | 'MEMBER';
++
+ export type SubscriptionStatus =
+   | 'TRIAL'
+   | 'ACTIVE'
+   | 'PAST_DUE'
+   | 'CANCELED'
+   | 'EXPIRED';
++
+ export type LicenseStatus = 'ACTIVE' | 'SUSPENDED' | 'REVOKED' | 'EXPIRED';
+ 
+-export interface LaboratorySummary {
+-  id: string;
++export interface PricingPlan {
++  code: string;
+   name: string;
+-  slug: string;
+-}
+-
+-export interface AuthUser {
+-  id: string;
+-  email: string;
+-  fullName: string;
+-  memberships: Array<{
+-    laboratoryId: string;
+-    laboratoryName: string;
+-    role: MembershipRole;
+-  }>;
+-}
+-
+-export interface AuthResponse {
+-  accessToken: string;
+-  user: AuthUser;
++  description: string | null;
++  amountCents: number;
++  currency: string;
++  billingInterval: string;
++  trialDays: number;
++  maxDevicesPerUser: number;
+ }
+ 
+-export interface HealthResponse {
+-  status: 'ok';
+-  service: 'dnpxia-api';
+-  timestamp: string;
++export interface Entitlement {
++  key: string;
++  value: number;
++  active: boolean;
+ }

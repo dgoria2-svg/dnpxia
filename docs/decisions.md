@@ -1,9 +1,25 @@
-# DNPXIA - decisiones iniciales
+# DNPXIA - decisiones
 
-- Fase 0: validar infraestructura y puertos antes de meter frameworks más pesados.
-- Base de datos inicial: PostgreSQL 16.
-- API inicial: Node + Express mínimo con endpoint de health.
-- Web inicial: Node mínimo que sirve una landing temporal.
-- Multi-tenant base: tenants, users_account, tenant_memberships, plans, subscriptions, devices.
-- Decisión temporal: todavía no hay auth real ni hash de password; primero dejamos listo el flujo de negocio.
-- Próximo paso: endpoint de bootstrap para alta de laboratorio + owner + trial.
+## Arquitectura base
+
+- Backend oficial en Fastify + Prisma + PostgreSQL.
+- Frontend web en Next.js.
+- Modelo multi-tenant por laboratorio.
+
+## FASE 2 (billing y suscripciones)
+
+- Stripe es el PSP elegido para cobrar suscripciones.
+- Trial estándar de 15 días parametrizado por plan (`Plan.trialDays`).
+- La fuente de verdad de pricing en backend es la tabla `Plan`.
+- Se agregan IDs de Stripe en entidades de dominio (`stripePriceId`, `stripeCustomerId`, `stripeSubscriptionId`).
+- Entitlements se guardan explícitamente en tabla `Entitlement` para permitir evolución futura por feature flags/cupos.
+- Webhooks se guardan en `WebhookEvent` con deduplicación por `eventId`.
+- El webhook actual sincroniza:
+  - estado de suscripción,
+  - periodos,
+  - entitlement `devices.max`.
+
+## Alcance fuera de FASE 2
+
+- No se implementa OMA/delivery en esta fase.
+- No se implementan aún flujos de fulfilment físico ni tracking de entregas.

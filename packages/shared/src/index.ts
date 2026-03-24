@@ -1,36 +1,27 @@
 export type MembershipRole = 'OWNER' | 'ADMIN' | 'STAFF' | 'MEMBER';
+
 export type SubscriptionStatus =
   | 'TRIAL'
   | 'ACTIVE'
   | 'PAST_DUE'
   | 'CANCELED'
   | 'EXPIRED';
+
 export type LicenseStatus = 'ACTIVE' | 'SUSPENDED' | 'REVOKED' | 'EXPIRED';
 
-export interface LaboratorySummary {
-  id: string;
+export interface PricingPlan {
+  code: string;
   name: string;
-  slug: string;
+  description: string | null;
+  amountCents: number;
+  currency: string;
+  billingInterval: string;
+  trialDays: number;
+  maxDevicesPerUser: number;
 }
 
-export interface AuthUser {
-  id: string;
-  email: string;
-  fullName: string;
-  memberships: Array<{
-    laboratoryId: string;
-    laboratoryName: string;
-    role: MembershipRole;
-  }>;
-}
-
-export interface AuthResponse {
-  accessToken: string;
-  user: AuthUser;
-}
-
-export interface HealthResponse {
-  status: 'ok';
-  service: 'dnpxia-api';
-  timestamp: string;
+export interface Entitlement {
+  key: string;
+  value: number;
+  active: boolean;
 }

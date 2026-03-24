@@ -30,95 +30,135 @@ enum LicenseStatus {
 }
 
 model User {
-  id                   String       @id @default(cuid())
-  email                String       @unique
-  fullName             String
-  passwordHash         String
-  maxDevices           Int          @default(2)
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
-  memberships          Membership[]
-  devices              Device[]
-  licenses             License[]
+  id           String       @id @default(cuid())
+  email        String       @unique
+  fullName     String
+  passwordHash String
+  maxDevices   Int          @default(2)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  memberships  Membership[]
+  devices      Device[]
+  licenses     License[]
 }
 
 model Laboratory {
-  id                   String         @id @default(cuid())
-  name                 String
-  slug                 String         @unique
-  status               String         @default("active")
-  trialEndsAt          DateTime?
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
-  memberships          Membership[]
-  subscriptions        Subscription[]
-  licenses             License[]
-  devices              Device[]
+  id               String         @id @default(cuid())
+  name             String
+  slug             String         @unique
+  status           String         @default("active")
+  trialEndsAt      DateTime?
+  stripeCustomerId String?        @unique
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  memberships      Membership[]
+  subscriptions    Subscription[]
+  licenses         License[]
+  devices          Device[]
+  entitlements     Entitlement[]
 }
 
 model Membership {
-  id                   String         @id @default(cuid())
-  role                 MembershipRole
-  createdAt            DateTime       @default(now())
-  userId               String
-  laboratoryId         String
-  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  laboratory           Laboratory     @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
+  id           String         @id @default(cuid())
+  role         MembershipRole
+  createdAt    DateTime       @default(now())
+  userId       String
+  laboratoryId String
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  laboratory   Laboratory     @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
 
   @@unique([userId, laboratoryId])
 }
 
 model Plan {
-  id                   String              @id @default(cuid())
-  code                 String              @unique
-  name                 String
-  description          String?
-  maxDevicesPerUser    Int                 @default(2)
-  isActive             Boolean             @default(true)
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
-  subscriptions        Subscription[]
+  id                String         @id @default(cuid())
+  code              String         @unique
+  name              String
+  description       String?
+  stripePriceId     String?        @unique
+  billingInterval   String         @default("month")
+  amountCents       Int            @default(0)
+  currency          String         @default("usd")
+  trialDays         Int            @default(15)
+  maxDevicesPerUser Int            @default(2)
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  subscriptions     Subscription[]
 }
 
 model Subscription {
-  id                   String              @id @default(cuid())
+  id                   String             @id @default(cuid())
   status               SubscriptionStatus
   startsAt             DateTime
   endsAt               DateTime?
   canceledAt           DateTime?
+  trialEndsAt          DateTime?
+  currentPeriodStartAt DateTime?
+  currentPeriodEndAt   DateTime?
+  stripeSubscriptionId String?            @unique
+  stripeCustomerId     String?
   laboratoryId         String
   planId               String
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
-  laboratory           Laboratory          @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
-  plan                 Plan                @relation(fields: [planId], references: [id])
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  laboratory           Laboratory         @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
+  plan                 Plan               @relation(fields: [planId], references: [id])
+  entitlements         Entitlement[]
+
+  @@index([laboratoryId, createdAt])
+}
+
+model Entitlement {
+  id             String        @id @default(cuid())
+  laboratoryId   String
+  subscriptionId String?
+  key            String
+  value          Int
+  source         String        @default("subscription")
+  active         Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  laboratory     Laboratory    @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@unique([laboratoryId, key])
+}
+
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  provider    String
+  eventId     String   @unique
+  eventType   String
+  payload     Json
+  processedAt DateTime @default(now())
 }
 
 model Device {
-  id                   String         @id @default(cuid())
-  userId               String
-  laboratoryId         String?
-  platform             String
-  deviceName           String
-  deviceIdentifier     String         @unique
-  isActive             Boolean        @default(true)
-  lastSeenAt           DateTime?
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
-  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  laboratory           Laboratory?    @relation(fields: [laboratoryId], references: [id], onDelete: SetNull)
+  id               String      @id @default(cuid())
+  userId           String
+  laboratoryId     String?
+  platform         String
+  deviceName       String
+  deviceIdentifier String      @unique
+  isActive         Boolean     @default(true)
+  lastSeenAt       DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  laboratory       Laboratory? @relation(fields: [laboratoryId], references: [id], onDelete: SetNull)
 }
 
 model License {
-  id                   String          @id @default(cuid())
-  userId               String
-  laboratoryId         String
-  status               LicenseStatus
-  grantedAt            DateTime        @default(now())
-  expiresAt            DateTime?
-  source               String          @default("subscription")
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
-  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  laboratory           Laboratory      @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
+  id           String       @id @default(cuid())
+  userId       String
+  laboratoryId String
+  status       LicenseStatus
+  grantedAt    DateTime     @default(now())
+  expiresAt    DateTime?
+  source       String       @default("subscription")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  laboratory   Laboratory   @relation(fields: [laboratoryId], references: [id], onDelete: Cascade)
 }

@@ -6,6 +6,10 @@ const requiredEnv = {
   DATABASE_URL: 'postgresql://dnpxia:dnpxia@localhost:5432/dnpxia?schema=public',
   JWT_SECRET: 'change-me-super-secret',
   CORS_ORIGIN: 'http://localhost:3000',
+  STRIPE_SECRET_KEY: 'sk_test_dummy',
+  STRIPE_WEBHOOK_SECRET: 'whsec_dummy',
+  STRIPE_SUCCESS_URL: 'http://localhost:3000/dashboard?billing=success',
+  STRIPE_CANCEL_URL: 'http://localhost:3000/dashboard?billing=cancel',
 };
 
 beforeAll(() => {
