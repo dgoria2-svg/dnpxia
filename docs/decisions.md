@@ -23,3 +23,12 @@
 
 - No se implementa OMA/delivery en esta fase.
 - No se implementan aún flujos de fulfilment físico ni tracking de entregas.
+
+## FASE 3 (base de acceso/licencias)
+
+- Se agrega una capa mínima de validación de acceso con backend como fuente de verdad para web y Android.
+- `GET /me/access` expone una decisión consolidada por laboratorio (`allowed`, estado de suscripción, cupo de dispositivos).
+- Se define trial operativo de 15 días con tope estricto de 1 dispositivo por usuario/laboratorio.
+- Para planes pagos se usa `Plan.maxDevicesPerUser`; el plan base seeded mantiene 3 dispositivos.
+- `POST /devices/validate` registra/actualiza huella de dispositivo y aplica límites con razones estandarizadas (`trial_expired`, `subscription_inactive`, `device_limit_reached`, `membership_not_found`, `lab_inactive`).
+- `POST /subscriptions/start-trial` inicia (o reinicia) trial mínimo para permitir bootstrap funcional sin depender de checkout de Stripe.
