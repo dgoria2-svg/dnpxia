@@ -3,6 +3,7 @@ import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
 import Fastify from 'fastify';
 import { getEnv } from './lib/env.js';
+import { accessRoutes } from './routes/access.js';
 import { authRoutes } from './routes/auth.js';
 import { billingRoutes } from './routes/billing.js';
 import { healthRoutes } from './routes/health.js';
@@ -24,6 +25,7 @@ export function buildApp() {
 
   app.register(healthRoutes);
   app.register(authRoutes);
+  app.register(accessRoutes);
   app.register(pricingRoutes);
   app.register(billingRoutes);
   app.register(webhooksRoutes);
