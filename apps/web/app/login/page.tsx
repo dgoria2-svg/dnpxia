@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { AuthResponse } from '@dnpxia/shared';
 import { SiteHeader } from '../../components/site-header';
 
@@ -11,6 +12,7 @@ type LoginError = {
 };
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState('owner@dnpxia.local');
   const [password, setPassword] = useState('ChangeMe123!');
   const [message, setMessage] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export default function LoginPage() {
 
       localStorage.setItem('dnpxia.accessToken', payload.accessToken);
       localStorage.setItem('dnpxia.user', JSON.stringify(payload.user));
-      setMessage(`Sesión iniciada para ${payload.user.fullName}. Token guardado localmente.`);
+      router.push('/dashboard');
     } catch {
       setMessage('No se pudo conectar con la API. Verificá que `apps/api` esté corriendo.');
     } finally {
@@ -97,7 +99,7 @@ export default function LoginPage() {
         </div>
 
         {message ? (
-          <p style={{ marginTop: '16px', color: message.startsWith('Sesión') ? 'var(--success)' : '#ff9a9a' }}>
+          <p style={{ marginTop: '16px', color: '#ff9a9a' }}>
             {message}
           </p>
         ) : null}
