@@ -32,3 +32,13 @@
 - Para planes pagos se usa `Plan.maxDevicesPerUser`; el plan base seeded mantiene 3 dispositivos.
 - `POST /devices/validate` registra/actualiza huella de dispositivo y aplica límites con razones estandarizadas (`trial_expired`, `subscription_inactive`, `device_limit_reached`, `membership_not_found`, `lab_inactive`).
 - `POST /subscriptions/start-trial` inicia (o reinicia) trial mínimo para permitir bootstrap funcional sin depender de checkout de Stripe.
+
+## FASE 4 (selector de laboratorio en web)
+
+- Cuando un usuario pertenece a múltiples laboratorios, la web exige seleccionar un laboratorio activo antes de entrar al dashboard.
+- La selección activa de laboratorio en web se persiste en `localStorage` bajo la clave `dnpxia.activeLabId`.
+- `GET /me` devuelve `user` + `memberships` para que el frontend pueda construir el selector.
+- `GET /me/access` acepta `labId` explícito.
+- Si el usuario tiene más de una membresía y no envía `labId`, `GET /me/access` responde `lab_selection_required`.
+- Si el `activeLabId` guardado deja de ser válido para el usuario, la web limpia esa selección y redirige a `/select-lab`.
+- El dashboard usa siempre el `labId` activo para resolver acceso, trial y cupo de dispositivos del contexto seleccionado.

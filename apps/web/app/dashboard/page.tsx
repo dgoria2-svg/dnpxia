@@ -3,18 +3,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { SiteHeader } from '../../components/site-header';
+import { clearActiveLabId, getActiveLabId, setActiveLabId } from '../../lib/active-lab';
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+
+type Membership = {
+  laboratoryId: string;
+  laboratoryName: string;
+  role: string;
+};
 
 type StoredUser = {
   id: string;
   email: string;
   fullName: string;
-  memberships?: Array<{
-    laboratoryId: string;
-    laboratoryName: string;
-    role: string;
-  }>;
+  memberships?: Membership[];
 };
 
 type AccessPayload = {
@@ -34,8 +37,15 @@ export default function DashboardPage() {
   const [access, setAccess] = useState<AccessPayload | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeLabId, setActiveLabIdState] = useState<string | null>(null);
 
-  const membership = useMemo(() => user?.memberships?.[0] ?? null, [user]);
+  const memberships = useMemo(() => user?.memberships ?? [], [user]);
+
+  const membership = useMemo(() => {
+    if (!memberships.length) return null;
+    if (!activeLabId) return memberships[0] ?? null;
+    return memberships.find((item) => item.laboratoryId === activeLabId) ?? null;
+  }, [memberships, activeLabId]);
 
   useEffect(() => {
     async function loadAccess() {
@@ -49,9 +59,31 @@ export default function DashboardPage() {
 
       try {
         const parsedUser = JSON.parse(rawUser) as StoredUser;
+        const parsedMemberships = parsedUser.memberships ?? [];
         setUser(parsedUser);
 
-        const response = await fetch(`${apiUrl}/me/access`, {
+        let selectedLabId = getActiveLabId();
+
+        if (parsedMemberships.length === 1) {
+          selectedLabId = parsedMemberships[0].laboratoryId;
+          setActiveLabId(selectedLabId);
+        }
+
+        if (parsedMemberships.length > 1) {
+          const valid = selectedLabId && parsedMemberships.some((item) => item.laboratoryId === selectedLabId);
+          if (!valid) {
+            clearActiveLabId();
+            router.replace('/select-lab');
+            return;
+          }
+        }
+
+        if (selectedLabId) {
+          setActiveLabIdState(selectedLabId);
+        }
+
+        const query = selectedLabId ? `?labId=${encodeURIComponent(selectedLabId)}` : '';
+        const response = await fetch(`${apiUrl}/me/access${query}`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -71,6 +103,12 @@ export default function DashboardPage() {
           return;
         }
 
+        if ('reason' in payload && payload.reason === 'lab_selection_required') {
+          clearActiveLabId();
+          router.replace('/select-lab');
+          return;
+        }
+
         setAccess(payload as AccessPayload);
       } catch {
         setMessage('No se pudo leer la sesión o conectar con la API.');
@@ -85,7 +123,12 @@ export default function DashboardPage() {
   function handleLogout() {
     localStorage.removeItem('dnpxia.accessToken');
     localStorage.removeItem('dnpxia.user');
+    clearActiveLabId();
     router.push('/login');
+  }
+
+  function handleSwitchLab() {
+    router.push('/select-lab');
   }
 
   return (
@@ -112,9 +155,16 @@ export default function DashboardPage() {
               </p>
             </div>
 
-            <button type="button" onClick={handleLogout}>
-              Cerrar sesión
-            </button>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              {memberships.length > 1 ? (
+                <button type="button" onClick={handleSwitchLab}>
+                  Cambiar laboratorio
+                </button>
+              ) : null}
+              <button type="button" onClick={handleLogout}>
+                Cerrar sesión
+              </button>
+            </div>
           </div>
         </div>
 

@@ -26,14 +26,17 @@ const validateDeviceSchema = z.object({
   appVersion: z.string().min(1),
 });
 
+type AccessReason =
+  | 'trial_expired'
+  | 'subscription_inactive'
+  | 'device_limit_reached'
+  | 'membership_not_found'
+  | 'lab_inactive'
+  | 'lab_selection_required';
+
 type AccessDecision = {
   allowed: boolean;
-  reason?:
-    | 'trial_expired'
-    | 'subscription_inactive'
-    | 'device_limit_reached'
-    | 'membership_not_found'
-    | 'lab_inactive';
+  reason?: AccessReason;
   subscriptionStatus?: 'trial' | 'active' | 'past_due' | 'canceled';
   trialEndsAt?: string | null;
   maxDevices?: number;
@@ -49,6 +52,58 @@ function toContractStatus(status: SubscriptionStatus): AccessDecision['subscript
 
 function addDays(date: Date, days: number) {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+async function listUserMemberships(userId: string) {
+  return prisma.membership.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'asc' },
+    include: { laboratory: true },
+  });
+}
+
+function toMembershipSummary(membership: Awaited<ReturnType<typeof listUserMemberships>>[number]) {
+  return {
+    labId: membership.laboratoryId,
+    labName: membership.laboratory.name,
+    labStatus: membership.laboratory.status,
+    createdAt: membership.createdAt.toISOString(),
+  };
+}
+
+async function resolveMembershipForAccess(userId: string, labId?: string) {
+  const memberships = await listUserMemberships(userId);
+
+  if (labId) {
+    const membership = memberships.find((item) => item.laboratoryId === labId) ?? null;
+    return {
+      memberships,
+      membership,
+      reason: membership ? undefined : ('membership_not_found' as const),
+    };
+  }
+
+  if (memberships.length === 0) {
+    return {
+      memberships,
+      membership: null,
+      reason: 'membership_not_found' as const,
+    };
+  }
+
+  if (memberships.length > 1) {
+    return {
+      memberships,
+      membership: null,
+      reason: 'lab_selection_required' as const,
+    };
+  }
+
+  return {
+    memberships,
+    membership: memberships[0],
+    reason: undefined,
+  };
 }
 
 async function getAccessDecision(userId: string, labId: string): Promise<AccessDecision> {
@@ -137,8 +192,12 @@ export async function accessRoutes(app: FastifyInstance) {
     await request.jwtVerify();
     const userId = String((request.user as { sub: string }).sub);
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const memberships = await listUserMemberships(userId);
 
-    return { user: await toAuthUser(user) };
+    return {
+      user: await toAuthUser(user),
+      memberships: memberships.map(toMembershipSummary),
+    };
   });
 
   app.get('/me/access', async (request, reply) => {
@@ -146,35 +205,37 @@ export async function accessRoutes(app: FastifyInstance) {
     const userId = String((request.user as { sub: string }).sub);
     const query = meAccessQuerySchema.parse(request.query);
 
-    const membership = query.labId
-      ? await prisma.membership.findFirst({
-          where: { userId, laboratoryId: query.labId },
-          include: { laboratory: true },
-        })
-      : await prisma.membership.findFirst({
-          where: { userId },
-          orderBy: { createdAt: 'asc' },
-          include: { laboratory: true },
-        });
+    const selection = await resolveMembershipForAccess(userId, query.labId);
+    const memberships = selection.memberships.map(toMembershipSummary);
 
-    if (!membership) {
+    if (!selection.membership) {
+      if (selection.reason === 'lab_selection_required') {
+        return {
+          allowed: false,
+          reason: 'lab_selection_required' as const,
+          memberships,
+        };
+      }
+
       return reply.code(403).send({
         allowed: false,
-        reason: 'membership_not_found',
+        reason: 'membership_not_found' as const,
+        memberships,
       });
     }
 
-    const access = await getAccessDecision(userId, membership.laboratoryId);
+    const access = await getAccessDecision(userId, selection.membership.laboratoryId);
 
     return {
       allowed: access.allowed,
       scopeType: 'lab' as const,
-      scopeId: membership.laboratoryId,
+      scopeId: selection.membership.laboratoryId,
       subscriptionStatus: access.subscriptionStatus ?? 'canceled',
       trialEndsAt: access.trialEndsAt,
       maxDevices: access.maxDevices ?? 0,
       activeDevices: access.activeDevices ?? 0,
       reason: access.reason,
+      memberships,
     };
   });
 
@@ -257,63 +318,67 @@ export async function accessRoutes(app: FastifyInstance) {
       return {
         allowed: false,
         reason: access.reason ?? 'subscription_inactive',
+        subscriptionStatus: access.subscriptionStatus ?? 'canceled',
+        trialEndsAt: access.trialEndsAt ?? null,
+        maxDevices: access.maxDevices ?? 0,
+        activeDevices: access.activeDevices ?? 0,
       };
     }
 
-    const existingDevice = await prisma.device.findUnique({
-      where: { deviceIdentifier: input.deviceFingerprint },
-    });
-
-    if (
-      existingDevice &&
-      (existingDevice.userId !== input.userId || existingDevice.laboratoryId !== input.labId)
-    ) {
-      return {
-        allowed: false,
-        reason: 'device_limit_reached',
-      };
-    }
-
+    const maxDevices = access.maxDevices ?? 0;
     const activeDevices = access.activeDevices ?? 0;
-    const maxDevices = access.maxDevices ?? trialMaxDevices;
 
-    if (!existingDevice && activeDevices >= maxDevices) {
-      return {
-        allowed: false,
-        reason: 'device_limit_reached',
-      };
-    }
-
-    await prisma.device.upsert({
-      where: { deviceIdentifier: input.deviceFingerprint },
-      update: {
+    const existingDevice = await prisma.device.findFirst({
+      where: {
         userId: input.userId,
         laboratoryId: input.labId,
-        deviceName: input.deviceName,
-        platform: input.platform,
-        lastSeenAt: new Date(),
-        isActive: true,
-      },
-      create: {
-        userId: input.userId,
-        laboratoryId: input.labId,
-        deviceIdentifier: input.deviceFingerprint,
-        deviceName: input.deviceName,
-        platform: input.platform,
-        isActive: true,
-        lastSeenAt: new Date(),
+        deviceFingerprint: input.deviceFingerprint,
       },
     });
 
-    const updatedActiveDevices = existingDevice ? activeDevices : activeDevices + 1;
+    const alreadyActive = existingDevice?.isActive === true;
+
+    if (!alreadyActive && activeDevices >= maxDevices) {
+      return {
+        allowed: false,
+        reason: 'device_limit_reached' as const,
+        subscriptionStatus: access.subscriptionStatus ?? 'canceled',
+        trialEndsAt: access.trialEndsAt ?? null,
+        maxDevices,
+        activeDevices,
+      };
+    }
+
+    if (existingDevice) {
+      await prisma.device.update({
+        where: { id: existingDevice.id },
+        data: {
+          deviceName: input.deviceName,
+          platform: input.platform,
+          appVersion: input.appVersion,
+          isActive: true,
+        },
+      });
+    } else {
+      await prisma.device.create({
+        data: {
+          userId: input.userId,
+          laboratoryId: input.labId,
+          deviceFingerprint: input.deviceFingerprint,
+          deviceName: input.deviceName,
+          platform: input.platform,
+          appVersion: input.appVersion,
+          isActive: true,
+        },
+      });
+    }
 
     return {
       allowed: true,
-      reason: 'ok',
-      subscriptionStatus: access.subscriptionStatus,
-      deviceRegistered: !existingDevice,
-      remainingSlots: Math.max(maxDevices - updatedActiveDevices, 0),
-      appVersion: input.appVersion,
+      subscriptionStatus: access.subscriptionStatus ?? 'canceled',
+      trialEndsAt: access.trialEndsAt ?? null,
+      maxDevices,
+      activeDevices: alreadyActive ? activeDevices : activeDevices + 1,
     };
   });
 }
